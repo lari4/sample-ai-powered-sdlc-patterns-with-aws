@@ -852,5 +852,194 @@ container_definitions = jsonencode([
 '''
 ```
 
+### 7. EKS Supervisor Prompt (Классификация)
+
+**Назначение:** Определение типа EKS deployment: Fargate или EC2 Node Group.
+
+**Когда используется:** Первый шаг при генерации EKS Terraform кода.
+
+**Расположение:** `deployment/deploy-devops-ai-assistant/generators/terraform/generate_eks_terraform_code.py`
+
+**Код промта:**
+
+```python
+supervisor_template = '''
+You are an AWS EKS expert. Classify the input requirement and output the setup pattern (either "fargate" or "ec2-nodegroup") without any additional text or explanations.
+Input: {input}
+Output:
+'''
+```
+
+### 8. EKS Fargate Terraform Generation Prompt
+
+**Назначение:** Генерация Terraform конфигурации для EKS с Fargate profiles.
+
+**Когда используется:** Когда пользователь хочет развернуть Kubernetes кластер на Fargate.
+
+**Код промта:**
+
+```python
+eks_cluster_fargate_template = '''
+You are a Terraform expert who generates AWS EKS Fargate configuration.
+Initial requirement: {initial_requirement}
+
+Please provide the following details:
+1. Name of the EKS cluster.
+2. Kubernetes version (e.g., 1.28).
+3. VPC configuration requirements.
+4. Fargate profile configuration (namespaces, selectors).
+5. Any specific tags to be applied to the cluster.
+6. Additional networking requirements (subnets, security groups).
+'''
+
+terraform_generation_fargate_template = '''
+Based on all the details provided:
+EKS cluster details: {eks_cluster_details}
+Kubernetes Manifests: {kubernetes_manifests}
+
+Generate reusable Terraform configurations for EKS Fargate and its dependent resources.
+
+CRITICAL REQUIREMENTS:
+1. DO NOT use external modules (no "module" blocks)
+2. Generate all resources inline using standard Terraform AWS provider resources
+3. DO NOT reference undefined modules like "alb_ingress" or external module sources
+4. Use only standard AWS provider resources: aws_eks_cluster, aws_eks_fargate_profile, aws_vpc, etc.
+5. Extract container image, ports, and names from the Kubernetes manifests
+6. Include all necessary resources: VPC, subnets, security groups, IAM roles, EKS cluster, Fargate profiles
+'''
+```
+
+### 9. EKS EC2 Node Group Terraform Generation Prompt
+
+**Назначение:** Генерация Terraform конфигурации для EKS с EC2 node groups.
+
+**Когда используется:** Когда пользователь хочет использовать EC2 инстансы для Kubernetes nodes.
+
+**Код промта:**
+
+```python
+eks_cluster_ec2_template = '''
+You are a Terraform expert who generates AWS EKS EC2 node group configuration.
+Initial requirement: {initial_requirement}
+
+Please provide the following details:
+1. Name of the EKS cluster.
+2. Kubernetes version (e.g., 1.28).
+3. Node group configuration (instance types, scaling settings).
+4. EC2 instance types to be used (e.g., t3.medium).
+5. Scaling configuration (min, max, desired capacity).
+6. Any specific tags to be applied to the cluster.
+7. Additional networking requirements (subnets, security groups).
+'''
+```
+
+### 10. Kubernetes Manifest Generation Prompt
+
+**Назначение:** Генерация Kubernetes манифестов (Deployment, Service, ConfigMap, Ingress) на основе Dockerfile.
+
+**Когда используется:** При развертывании приложения в EKS.
+
+**Ключевые особенности:**
+- Извлечение образа из Dockerfile
+- Извлечение портов из EXPOSE
+- Создание Deployment, Service, ConfigMap, Ingress
+- НЕ использует hardcoded значения
+
+**Код промта:**
+
+```python
+kubernetes_manifest_template = '''
+Generate Kubernetes manifests based on the Dockerfile content provided.
+Dockerfile content: {dockerfile_content}
+
+IMPORTANT: Extract the following information from the Dockerfile:
+- Base image from FROM instruction (use this as the container image)
+- Exposed ports from EXPOSE instruction (use for containerPort and service port)
+- Working directory from WORKDIR instruction
+- Environment variables from ENV instructions
+- Resource requirements based on application type
+
+DO NOT use hardcoded values like "nginx", "my-app:latest", or port 80/8080.
+Use the actual information from the Dockerfile provided.
+
+EXAMPLES of extraction (use actual values from YOUR Dockerfile):
+- If YOUR Dockerfile has FROM node:16 → use image: node:16
+- If YOUR Dockerfile has EXPOSE 3000 → use containerPort: 3000
+- If YOUR Dockerfile builds a web-app → use name: web-app
+
+Generate the following Kubernetes resources with extracted values:
+- Deployment with container specifications (use extracted image and ports)
+- Service to expose the application (use extracted ports)
+- ConfigMap if needed for configuration (use extracted ENV variables)
+- Ingress for external access (use extracted service port)
+
+Extract and use the actual image name, ports, environment variables, and configuration from the provided Dockerfile content.
+'''
+```
+
+### 11. Buildspec Generation Prompt
+
+**Назначение:** Генерация buildspec.yaml для AWS CodeBuild для сборки и push Docker образов в ECR.
+
+**Когда используется:** При настройке CI/CD пайплайна для контейнеризованных приложений.
+
+**Расположение:** `deployment/deploy-devops-ai-assistant/generators/buildspec/generate_buildspec.py`
+
+**Ключевые особенности:**
+- Извлечение runtime версии из Dockerfile
+- Аутентификация в ECR
+- Сборка и push Docker образа
+- Следование AWS best practices
+
+**Код промта:**
+
+```python
+instruction_template = '''
+1. You are an AWS CodeBuild expert.
+2. Generate a buildspec.yaml file for building, tagging, and pushing a Docker image to Amazon ECR based on the provided Dockerfile content and ECR repository details including clone steps as pre-requisite.
+
+Dockerfile content: {dockerfile_content}
+ECR Repository Name: {ecr_repository_name}
+ECR Repository URI: {ecr_repository_uri}
+
+3. The buildspec.yaml file must adhere to the Dockerfile content and ECR details. Include all necessary phases and commands, following AWS best practices for security and efficiency.
+4. Use only the latest of prescribed image runtime versions {runtime_version} - dotnet, golang, ruby, python, php, nodejs, java
+'''
+
+buildspec_template = '''
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      {runtime_version}
+    commands:
+{install_commands}
+
+  pre_build:
+    commands:
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin {ecr_repository_uri}
+      - REPOSITORY_URI={ecr_repository_uri}
+      - IMAGE_TAG=$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+  build:
+    commands:
+{build_commands}
+      - echo "Building Docker image..."
+      - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
+
+  post_build:
+    commands:
+      - echo "Pushing the Docker image to ECR..."
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+
+Ensure that the generated buildspec.yaml includes all necessary phases and commands, and follows AWS best practices for security and efficiency.
+
+The output must be in YAML format, enclosed in triple backticks with the 'yaml' marker.
+Do not include any additional text or explanations outside the code block.
+'''
+```
+
 ---
 
