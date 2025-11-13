@@ -701,3 +701,449 @@ container_definitions = jsonencode([
 
 ---
 
+## Performance Testing Pipeline
+
+**Назначение:** Автоматическая генерация и выполнение JMeter performance тестов на основе архитектурной документации.
+
+**Компоненты:** Architecture Analyzer, Scenario Generator, Test Executor, Results Analyzer
+
+### ASCII Диаграмма
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│   User: "Create performance tests for my API"                │
+│   Provides: Architecture docs (Confluence/S3)                │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 1: Architecture Analysis                             │
+│    Prompt: Architecture Analysis Prompt                      │
+│    Input: Architecture documents (markdown/JSON/YAML)        │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Extract System Information                                │
+│    Claude analyzes docs and extracts:                        │
+│    • Components (services, databases, APIs)                  │
+│    • API Endpoints (REST/GraphQL)                            │
+│      - Path: /api/books                                      │
+│      - Method: GET/POST/PUT/DELETE                           │
+│      - Request/Response format                               │
+│    • Data Flows (how components interact)                    │
+│    • User Workflows (step-by-step business processes)        │
+│    • NFRs (response time, concurrent users, throughput)      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Analysis Result Saved to S3                               │
+│    s3://bucket/perf-pipeline/{session_id}/analysis.json      │
+│                                                               │
+│    {                                                          │
+│      "components": [...],                                    │
+│      "endpoints": [                                          │
+│        {                                                      │
+│          "path": "/api/books",                               │
+│          "method": "GET",                                    │
+│          "description": "List all books"                     │
+│        }                                                      │
+│      ],                                                       │
+│      "workflows": [                                          │
+│        {                                                      │
+│          "name": "User Registration Workflow",               │
+│          "steps": [                                          │
+│            {"api": "POST /api/users", "description": "..."}  │
+│          ]                                                    │
+│        }                                                      │
+│      ],                                                       │
+│      "nfrs": {                                               │
+│        "max_concurrent_users": 1000,                         │
+│        "max_test_duration": "5 minutes",                     │
+│        "max_loops_per_user": 10,                             │
+│        "target_response_time": "< 200ms"                     │
+│      }                                                        │
+│    }                                                          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 2: Scenario Generation                               │
+│    Prompt: Scenario Generation Prompt                        │
+│    Input: Analysis result (workflows + NFRs)                 │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Generate Test Scenarios                                   │
+│    Claude creates 3 types of scenarios:                      │
+│                                                               │
+│    1. Load Testing (normal load)                             │
+│       • concurrent_users: 100 (from NFRs)                    │
+│       • duration: 300 seconds (from NFRs)                    │
+│       • loops_per_user: 10 (from NFRs)                       │
+│       • api_sequence: [Step 1, Step 2, ...]                  │
+│                                                               │
+│    2. Stress Testing (beyond capacity)                       │
+│       • concurrent_users: 150 (1.5x load)                    │
+│       • duration: 300 seconds                                │
+│       • ramp_up: faster                                      │
+│                                                               │
+│    3. Endurance Testing (sustained load)                     │
+│       • concurrent_users: 100                                │
+│       • duration: 1800 seconds (longer)                      │
+│       • loops: unlimited                                     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Scenarios Saved to S3                                     │
+│    s3://bucket/perf-pipeline/{session_id}/scenarios.json     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 3: Generate JMeter Test Plans                        │
+│    • Convert scenarios to Java DSL                           │
+│    • Create Thread Groups                                    │
+│    • Add HTTP Samplers for each API                          │
+│    • Configure assertions and listeners                      │
+│    • Compile to JMeter .jmx file                             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 4: Execute Tests                                     │
+│    • Run JMeter test plans                                   │
+│    • Collect metrics (response times, throughput, errors)    │
+│    • Generate raw results (CSV/JTL)                          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Test Results Generated                                    │
+│    {                                                          │
+│      "summary": {                                            │
+│        "total_requests": 10000,                              │
+│        "success_rate": 99.5,                                 │
+│        "avg_response_time": 145,                             │
+│        "p95_response_time": 280,                             │
+│        "throughput": 50.2                                    │
+│      },                                                       │
+│      "per_endpoint": {...},                                  │
+│      "errors": [...]                                         │
+│    }                                                          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 5: AI Analysis of Results                            │
+│    Prompt: Test Results Analysis Prompt                      │
+│    Input: Test results JSON                                  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Generate Comprehensive Analysis                           │
+│    {                                                          │
+│      "executive_summary": "System performed well...",        │
+│      "performance_grade": "B",                               │
+│      "key_findings": [                                       │
+│        "Response time meets SLA (< 200ms target)",           │
+│        "Error rate is acceptable (0.5%)",                    │
+│        "/api/books endpoint shows latency spike"             │
+│      ],                                                       │
+│      "recommendations": [                                    │
+│        "Add caching for /api/books endpoint",                │
+│        "Consider database query optimization",               │
+│        "Increase connection pool size"                       │
+│      ],                                                       │
+│      "risk_assessment": "Low risk - system stable",          │
+│      "bottleneck_analysis": [                                │
+│        "Database queries taking 80ms avg",                   │
+│        "Network latency contributing 20ms"                   │
+│      ],                                                       │
+│      "scalability_assessment": "Can handle 2x load..."       │
+│    }                                                          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Return Analysis to User                                   │
+│    • Performance grade                                       │
+│    • Detailed findings                                       │
+│    • Actionable recommendations                              │
+│    • Full report in S3                                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Передаваемые данные
+
+**Step 1 Output (Architecture Analysis):**
+```json
+{
+  "components": ["API Gateway", "ECS Service", "RDS"],
+  "endpoints": [
+    {"path": "/api/books", "method": "GET"},
+    {"path": "/api/books", "method": "POST"}
+  ],
+  "workflows": [
+    {
+      "name": "Browse Books",
+      "steps": [
+        {"api": "GET /api/books", "order": 1},
+        {"api": "GET /api/books/{id}", "order": 2}
+      ]
+    }
+  ],
+  "nfrs": {
+    "max_concurrent_users": 1000,
+    "max_test_duration": "5 minutes",
+    "max_loops_per_user": 10
+  }
+}
+```
+
+**Step 2 Output (Scenarios):**
+```json
+{
+  "scenarios": [
+    {
+      "name": "Load Test - Browse Books",
+      "type": "load",
+      "concurrent_users": 100,
+      "duration_seconds": 300,
+      "ramp_up_seconds": 60,
+      "loops_per_user": 10,
+      "api_sequence": [
+        {"path": "/api/books", "method": "GET"},
+        {"path": "/api/books/{id}", "method": "GET"}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## Incident Management Pipeline
+
+**Назначение:** Автоматический анализ и обработка инцидентов из Slack/PagerDuty.
+
+**Компоненты:** Incident Analyzer (Claude Haiku), Slack Bot, PagerDuty Integration
+
+### ASCII Диаграмма
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│         Incident Triggered                                   │
+│  Source: Slack alert OR PagerDuty notification               │
+│                                                               │
+│  Example:                                                    │
+│  "🚨 High CPU usage on prod-api-server-1                     │
+│   Current: 95% | Threshold: 80%"                             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Incident Data Collection                                  │
+│    • Incident message                                        │
+│    • Timestamp                                               │
+│    • Source system (Slack/PagerDuty)                         │
+│    • Severity (if available)                                 │
+│    • Affected services                                       │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 1: AI Analysis (Claude Haiku)                        │
+│    Multiple analyses run in parallel:                        │
+│                                                               │
+│    1. Root Cause Analysis                                    │
+│    2. Severity Classification                                │
+│    3. Remediation Suggestions                                │
+│    4. Similar Incident Search                                │
+│    5. Risk Level Assessment                                  │
+│    6. Resolution Time Estimation                             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+              ┌─────────────┼─────────────┐
+              │             │             │
+              ▼             ▼             ▼
+    ┌───────────────┐ ┌──────────┐ ┌────────────┐
+    │ Root Cause    │ │ Severity │ │ Similar    │
+    │ Analysis      │ │ Check    │ │ Incidents  │
+    └───────┬───────┘ └────┬─────┘ └─────┬──────┘
+            │              │              │
+            └──────────────┼──────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│    AI Analysis Results                                       │
+│    {                                                          │
+│      "root_cause": {                                         │
+│        "primary": "Memory leak in API service",              │
+│        "contributing_factors": [                             │
+│          "High traffic load",                                │
+│          "Inefficient caching"                               │
+│        ],                                                     │
+│        "confidence": 0.85                                    │
+│      },                                                       │
+│      "severity": {                                           │
+│        "level": "HIGH",                                      │
+│        "impact": "Service degradation",                      │
+│        "affected_users": "~1000 users"                       │
+│      },                                                       │
+│      "remediation": [                                        │
+│        {                                                      │
+│          "action": "Restart affected containers",            │
+│          "priority": 1,                                      │
+│          "command": "kubectl rollout restart deploy/api"     │
+│        },                                                     │
+│        {                                                      │
+│          "action": "Increase memory limits",                 │
+│          "priority": 2,                                      │
+│          "details": "Update limits to 2Gi"                   │
+│        }                                                      │
+│      ],                                                       │
+│      "similar_incidents": [                                  │
+│        {                                                      │
+│          "id": "INC-2024-001",                               │
+│          "similarity": 0.92,                                 │
+│          "resolution": "Memory limit increase"               │
+│        }                                                      │
+│      ],                                                       │
+│      "risk_level": "MEDIUM",                                 │
+│      "estimated_resolution_time": "30 minutes"               │
+│    }                                                          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 2: Generate Structured Response                      │
+│    Format analysis results for:                              │
+│    • Slack notification (markdown)                           │
+│    • PagerDuty incident notes                                │
+│    • Incident database entry                                 │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Post Response to Slack                                    │
+│                                                               │
+│    🔍 **Incident Analysis Results**                          │
+│                                                               │
+│    **Root Cause:** Memory leak in API service (85% confident)│
+│                                                               │
+│    **Severity:** HIGH - Service degradation affecting ~1000  │
+│    users                                                      │
+│                                                               │
+│    **Recommended Actions:**                                  │
+│    1️⃣ Restart affected containers (Priority 1)              │
+│       `kubectl rollout restart deploy/api`                   │
+│    2️⃣ Increase memory limits to 2Gi (Priority 2)            │
+│                                                               │
+│    **Similar Incident:** INC-2024-001 (92% match)            │
+│    Resolution: Memory limit increase                         │
+│                                                               │
+│    **Estimated Resolution Time:** 30 minutes                 │
+│                                                               │
+│    **Risk Level:** MEDIUM                                    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 3: Execute Auto-Remediation (if enabled)             │
+│    • Check if auto-remediation is allowed                    │
+│    • Execute safe remediation steps automatically            │
+│    • Log all actions                                         │
+│    • Notify team of actions taken                            │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 4: Update Incident Tracking                          │
+│    • Store incident in database                              │
+│    • Link to similar incidents                               │
+│    • Track resolution progress                               │
+│    • Update PagerDuty with analysis                          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Step 5: Post-Incident Learning                            │
+│    • Add to incident knowledge base                          │
+│    • Update similar incident index                           │
+│    • Generate incident report                                │
+│    • Suggest preventive measures                             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Incident Resolution Confirmed                             │
+│    • Notify team in Slack                                    │
+│    • Close PagerDuty incident                                │
+│    • Archive analysis and logs                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Передаваемые данные
+
+**Input (Incident Alert):**
+```json
+{
+  "source": "slack",
+  "channel": "#alerts-prod",
+  "message": "🚨 High CPU usage on prod-api-server-1\nCurrent: 95% | Threshold: 80%",
+  "timestamp": "2025-01-15T14:30:00Z",
+  "severity": "high"
+}
+```
+
+**AI Analysis Output:**
+```json
+{
+  "incident_id": "INC-2025-042",
+  "root_cause": {
+    "primary": "Memory leak in API service",
+    "contributing_factors": ["High traffic", "Inefficient caching"],
+    "confidence": 0.85
+  },
+  "severity": {
+    "level": "HIGH",
+    "impact": "Service degradation",
+    "affected_users": "~1000"
+  },
+  "remediation": [
+    {
+      "action": "Restart affected containers",
+      "priority": 1,
+      "command": "kubectl rollout restart deploy/api",
+      "safe_to_automate": true
+    }
+  ],
+  "similar_incidents": [
+    {"id": "INC-2024-001", "similarity": 0.92}
+  ],
+  "risk_level": "MEDIUM",
+  "estimated_resolution_time": "30 minutes"
+}
+```
+
+---
+
+## Summary
+
+Эти пайплайны демонстрируют, как AI-агент обрабатывает различные задачи в процессе разработки ПО:
+
+1. **SDLC Phase-Specific** - базовый пайплайн для контекстной помощи
+2. **Epic Creation** - извлечение и структурирование требований
+3. **Domain Analysis + OpenAPI** - от бизнес-анализа до API спецификации
+4. **Architecture Design** - создание диаграмм и оценка стоимости
+5. **DevOps Infrastructure** - полная автоматизация создания инфраструктуры
+6. **Performance Testing** - от документов до тестов и анализа результатов
+7. **Incident Management** - автоматический анализ и разрешение проблем
+
+Каждый пайплайн использует цепочку промтов, где выходные данные одного промта становятся входными для следующего, создавая полный автоматизированный workflow.
+
