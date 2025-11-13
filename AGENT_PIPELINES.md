@@ -349,3 +349,355 @@
 
 ---
 
+## Architecture Design Pipeline
+
+**Назначение:** Создание архитектурных диаграмм и оценка стоимости инфраструктуры.
+
+**Компоненты:** `enhanced_claude_service.py`, Architecture Diagram MCP, Cost Estimation MCP
+
+### ASCII Диаграмма
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  User: "Create architecture diagram for my application"      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│       Enhanced Claude Service - Intent Analysis              │
+│   Keywords: "diagram", "architecture", "visualize"           │
+│   → Identified: Architecture Visualization Request           │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Execute create_architecture_diagram Tool                  │
+│   Input:                                                     │
+│   • System requirements                                      │
+│   • Component descriptions                                   │
+│   • AWS services to use                                      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│       Generate Architecture Diagram                          │
+│   • Parse requirements                                       │
+│   • Identify components and relationships                    │
+│   • Create visual diagram (draw.io/mxgraph format)           │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│           Return Diagram to User                             │
+│   • Diagram XML/image                                        │
+│   • Component list                                           │
+│   • Relationship descriptions                                │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Optional: User asks "What's the cost?"                    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│      Execute estimate_architecture_cost Tool                 │
+│   Input: Architecture diagram components                     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│         Calculate AWS Resource Costs                         │
+│   • Identify AWS services in architecture                    │
+│   • Apply pricing for each service                           │
+│   • Calculate monthly/yearly estimates                       │
+│   • Provide cost breakdown by service                        │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│          Return Cost Estimate to User                        │
+│   • Total monthly cost                                       │
+│   • Cost breakdown by service                                │
+│   • Cost optimization suggestions                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Передаваемые данные
+
+**Input:**
+- System requirements text
+- Desired AWS services
+- Scale/load requirements
+
+**Diagram Generation Output:**
+```json
+{
+  "diagram_url": "s3://bucket/diagrams/arch-123.xml",
+  "components": [
+    {"name": "ALB", "type": "load_balancer"},
+    {"name": "ECS Fargate", "type": "compute"},
+    {"name": "RDS PostgreSQL", "type": "database"}
+  ],
+  "relationships": [
+    {"from": "ALB", "to": "ECS Fargate", "type": "routes_to"},
+    {"from": "ECS Fargate", "to": "RDS", "type": "reads_writes"}
+  ]
+}
+```
+
+**Cost Estimation Output:**
+```json
+{
+  "monthly_cost": 847.50,
+  "breakdown": {
+    "ALB": 22.50,
+    "ECS_Fargate": 350.00,
+    "RDS_PostgreSQL": 475.00
+  },
+  "optimization_suggestions": [
+    "Consider Reserved Instances for 30% savings",
+    "Use Fargate Spot for non-critical workloads"
+  ]
+}
+```
+
+---
+
+## DevOps Infrastructure Generation Pipeline
+
+**Назначение:** Автоматическая генерация Dockerfile, Terraform конфигураций и buildspec.yaml.
+
+**Компоненты:** Docker Generator, Terraform Generator (ECS/EKS), Buildspec Generator
+
+### ASCII Диаграмма - Полный DevOps Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│         User: "Deploy my Java application to AWS"            │
+│         Repository URL provided                              │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Step 1: Project Identification                  │
+│   • Clone repository                                         │
+│   • Detect project type (Java/Go/Node/Python/Rust)          │
+│   • Find dependency files (pom.xml, go.mod, package.json)    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│      Step 2: Extract Project Information Prompt              │
+│   Prompt: get_info_for_docker_file_prompt                    │
+│   Input:                                                     │
+│   • project_type: "java"                                     │
+│   • dependency_object_content: {pom.xml content}             │
+│   • project_files_list: [src/, pom.xml, ...]                │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│         Extract Build Information                            │
+│   Output:                                                    │
+│   base_image: openjdk:11-jdk-slim                            │
+│   app_name: bookstore-api                                    │
+│   binary_name: bookstore-api-1.0.0-SNAPSHOT.jar              │
+│   entry_point: java -jar /app/bookstore-api-1.0.0...jar     │
+│   expose_port: EXPOSE 8080                                   │
+│   build_artifact: target/bookstore-api-1.0.0-SNAPSHOT.jar    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│       Step 3: Generate Dockerfile                            │
+│   Prompt: docker_file_generation_prompt_template             │
+│   Input: Extracted build information                         │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│         Dockerfile Generated                                 │
+│   # Build stage                                              │
+│   FROM openjdk:11-jdk-slim AS build                          │
+│   RUN apt-get update && apt-get install -y maven            │
+│   WORKDIR /app                                               │
+│   COPY . .                                                   │
+│   RUN mvn clean package                                      │
+│                                                               │
+│   # Runtime stage                                            │
+│   FROM openjdk:11-jre-slim                                   │
+│   WORKDIR /app                                               │
+│   COPY --from=build /app/target/bookstore-api-*.jar app.jar │
+│   RUN useradd appuser && chown -R appuser:appuser /app      │
+│   USER appuser                                               │
+│   EXPOSE 8080                                                │
+│   ENTRYPOINT ["java", "-jar", "app.jar"]                     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│       Step 4: Build and Test Docker Image                    │
+│   docker build -t app:test .                                 │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                ┌───────────┴───────────┐
+                │                       │
+                ▼                       ▼
+    ┌──────────────────┐    ┌──────────────────────┐
+    │  Build Success   │    │   Build Failed       │
+    └────────┬─────────┘    └──────────┬───────────┘
+             │                         │
+             │                         ▼
+             │              ┌─────────────────────────────────┐
+             │              │ Step 4b: Fix Dockerfile         │
+             │              │ Prompt: fix_dockerfile_...      │
+             │              │ Input:                          │
+             │              │ • docker_build_error            │
+             │              │ • dockerfile_content            │
+             │              └──────────┬──────────────────────┘
+             │                         │
+             │                         ▼
+             │              ┌─────────────────────────────────┐
+             │              │ Apply Package Manager Fix       │
+             │              │ Retry Build                     │
+             │              └──────────┬──────────────────────┘
+             │                         │
+             └─────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│      Step 5: Choose Deployment Target                        │
+│   User selects: ECS Fargate / ECS EC2 / EKS Fargate / EKS EC2│
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          │                 │                 │
+          ▼                 ▼                 ▼
+    ┌───────────┐    ┌───────────┐    ┌───────────┐
+    │    ECS    │    │    EKS    │    │ Other...  │
+    └─────┬─────┘    └─────┬─────┘    └───────────┘
+          │                │
+          ▼                ▼
+┌──────────────────────────────────────────────────────────────┐
+│   Step 6a: ECS Deployment Path                               │
+│   Supervisor Prompt → Classify: "fargate" or "ec2-autoscaling"│
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Generate Task Definition from Dockerfile                  │
+│   Prompt: task_definition_template                           │
+│   • Extract FROM image                                       │
+│   • Extract EXPOSE port                                      │
+│   • Extract ENV variables                                    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│    Generate Complete Terraform Code                          │
+│   Prompt: terraform_generation_fargate_template              │
+│   Resources:                                                 │
+│   • VPC, Subnets, IGW                                        │
+│   • ECS Cluster                                              │
+│   • Task Definition                                          │
+│   • ECS Service                                              │
+│   • Security Groups                                          │
+│   • IAM Roles                                                │
+│   • CloudWatch Logs                                          │
+│   • (Optional) ALB                                           │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│   Step 6b: EKS Deployment Path                               │
+│   Similar flow but generates:                                │
+│   • EKS Cluster Terraform                                    │
+│   • Kubernetes Manifests (Deployment, Service, Ingress)      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│       Step 7: Generate Buildspec.yaml                        │
+│   Prompt: buildspec_template                                 │
+│   Input:                                                     │
+│   • dockerfile_content                                       │
+│   • ecr_repository_name                                      │
+│   • ecr_repository_uri                                       │
+│   • runtime_version (extracted from Dockerfile)              │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│          All Files Generated                                 │
+│   ✓ Dockerfile                                               │
+│   ✓ Terraform files (main.tf, variables.tf, outputs.tf)     │
+│   ✓ buildspec.yaml                                           │
+│   ✓ Kubernetes manifests (if EKS)                            │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│       Return Generated Code to User                          │
+│   • Download as ZIP                                          │
+│   • Instructions for deployment                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Передаваемые данные между этапами
+
+**Step 1 → Step 2:**
+```json
+{
+  "project_type": "java",
+  "dependency_files": {
+    "pom.xml": "<content>",
+    "src/": "..."
+  },
+  "project_structure": ["src/", "target/", "pom.xml"]
+}
+```
+
+**Step 2 → Step 3:**
+```
+base_image: openjdk:11-jdk-slim
+app_name: bookstore-api
+binary_name: bookstore-api-1.0.0-SNAPSHOT.jar
+entry_point: java -jar /app/bookstore-api-1.0.0-SNAPSHOT.jar
+expose_port: EXPOSE 8080
+build_artifact: target/bookstore-api-1.0.0-SNAPSHOT.jar
+```
+
+**Step 3 → Step 4:**
+- Complete Dockerfile content
+
+**Step 6a Task Definition Output:**
+```hcl
+container_definitions = jsonencode([
+  {
+    name      = "bookstore-api"
+    image     = "bookstore-api:latest"
+    cpu       = 512
+    memory    = 1024
+    essential = true
+    portMappings = [
+      {
+        containerPort = 8080
+        hostPort      = 8080
+        protocol      = "tcp"
+      }
+    ]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = "/ecs/bookstore-api"
+        "awslogs-region"        = "us-east-1"
+        "awslogs-stream-prefix" = "ecs"
+      }
+    }
+  }
+])
+```
+
+---
+
