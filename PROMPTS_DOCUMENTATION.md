@@ -497,3 +497,360 @@ CRITICAL: Use ## [Epic Name] Epic headers and • bullet points ONLY. No other f
 
 ---
 
+## DevOps AI Assistant Prompts
+
+Эти промты используются для автоматической генерации инфраструктурного кода, Dockerfile'ов, Terraform конфигураций и buildspec файлов для AWS.
+
+**Расположение:** `deployment/deploy-devops-ai-assistant/generators/`
+
+### 1. Dockerfile Generation Prompt
+
+**Назначение:** Генерация оптимизированного Dockerfile на основе типа проекта и его зависимостей.
+
+**Когда используется:** При создании Docker образа для приложения любого типа (Java, Go, Node.js, Python, Rust).
+
+**Расположение:** `deployment/deploy-devops-ai-assistant/generators/docker/generate_docker_file.py`
+
+**Ключевые особенности:**
+- Автоматический выбор базового образа по типу проекта
+- Правильный выбор package manager по ОС (apt-get, yum, apk)
+- Multi-stage builds для Java проектов
+- Извлечение имен артефактов из файлов зависимостей (pom.xml, go.mod, package.json, Cargo.toml)
+- Создание непривилегированного пользователя
+- Очистка ненужных файлов
+
+**Код промта:**
+
+```python
+docker_file_generation_prompt_template = """
+You are a Dockerfile generation AI assistant. Your task is to generate a Dockerfile by following the best practices based on the provided details and instructions.
+Project Type: {project_type}
+Dockerfile content information: {docker_file_content_info}
+
+1. Always prefer to use base image of the dockerfile based on project type specified
+2. CRITICAL: Match package manager to base image OS:
+   - For Debian/Ubuntu-based images (debian, ubuntu, python, node, openjdk with -slim): use "apt-get update && apt-get install -y"
+   - For RHEL/CentOS-based images (centos, rhel, amazonlinux): use "yum update -y && yum install -y"
+   - For Alpine-based images (alpine, node:alpine, openjdk:alpine): use "apk update && apk add"
+3. Don't use wrapper binaries for project that need compilation like use mvn instead of mvnw. Also make sure you use only official binaries instead of binaries that are listed from third party services.
+4. Try to identify the list of all the dependencies required for the project along with their versions from the Dependency Object Content details provided in the prompt.
+5. Try to add instructions to clean any files that are not required for running the application. For example for building a go binary all go modules are needed. But after the binary was built, there is no need to keep the dependency files. But on the other hand, if it is a python project all the dependencies should be present as it uses those files during runtime.
+6. Make sure to add instructions to copy all the required files from the dependency object content to the docker container. Like COPY . /app/ or COPY src/ /app/ or ADD . /app or ADD src /app. These instructions should be present before the compilation of the source code instructions provided like RUN mvn clean package or RUN go build
+7. Make sure to add instructions to install all the required dependencies for the application. Like RUN mvn clean package or go build. Always make sure this should be present after the COPY or ADD instruction of the source code. Don't use wrapper binaries like .mvnw
+7. Make sure to add instructions to expose the port required for the application to run. Like EXPOSE 8080 or EXPOSE 5000 and please add it to top of the instructions after FROM and before COPY
+8. Make sure to add instructions to specify the entry point for the application. Like ENTRYPOINT ["python"] or ENTRYPOINT ["./app"]
+10. Make sure to add instructions to define the working directory for the application. Like WORKDIR /app
+11. Make sure to add instructions to define the environment variables for the application. Like ENV PORT=8080 or ENV DB_HOST=localhost
+12. In the end create a user, assign appropriate permissions to that user on all the application files after installing the required dependencies and generating the binary. For example RUN useradd appuser && chown -R appuser:appuser /app
+13. Add instruction to run the docker image under that specific user. Like USER appuser
+14. Make sure we have appropriate entrypoint or CMD at the end of all instructions in the dockerfile
+15. Also consider underlying OS platform information while building dockerfile
+16. Make sure to use the latest version of the base latest debian image
+17. Don't use dependency:go-offline mode in dockerfile and take dependencies from the dependency object content provided in the prompt
+18. In CMD or entry point specify the entry point paths correct instead of using wildcards by evaluating the dependency objects configuration.
+19. For Java projects, always use JDK base images (like openjdk:11-jdk-slim) not JRE images, as compilation requires JDK
+20. For Java projects, use multi-stage builds: build stage with JDK for compilation, runtime stage with JRE for execution
+21. CRITICAL LANGUAGE-SPECIFIC ARTIFACT HANDLING:
+
+    JAVA:
+    - Maven: Extract artifactId and version from pom.xml → artifactId-version.jar
+    - Gradle: Extract from build.gradle → archiveBaseName-version.jar
+    - Use exact JAR name in COPY target/actual-jar-name.jar
+
+    GO:
+    - Extract module name from go.mod: "module github.com/user/myapp" → binary: myapp
+    - Use: RUN go build -o /app/binary-name ./cmd/main.go or RUN go build -o /app/binary-name
+    - Entry point: ENTRYPOINT ["/app/binary-name"]
+
+    NODE.JS:
+    - Extract app name from package.json "name" field
+    - Entry point from "main" field or "scripts.start"
+    - Use: ENTRYPOINT ["node", "main-file"]
+
+    PYTHON:
+    - Entry point typically app.py, main.py, or from setup.py
+    - Use: ENTRYPOINT ["python", "entry-file"]
+
+    RUST:
+    - Extract binary name from Cargo.toml [package] name
+    - Binary path: target/release/name
+    - Use: COPY target/release/binary-name /app/
+
+22. DO NOT use hardcoded names - extract actual names from dependency files
+
+EXAMPLES OF CORRECT PACKAGE MANAGER USAGE:
+- FROM openjdk:11-jdk-slim → RUN apt-get update && apt-get install -y maven
+- FROM openjdk:11-jdk-alpine → RUN apk update && apk add maven
+- FROM amazonlinux:2 → RUN yum update -y && yum install -y java-11-amazon-corretto
+"""
+```
+
+### 2. Dockerfile Info Extraction Prompt
+
+**Назначение:** Извлечение информации о проекте из файлов зависимостей для генерации Dockerfile.
+
+**Когда используется:** Перед генерацией Dockerfile для понимания структуры проекта.
+
+**Код промта:**
+
+```python
+get_info_for_docker_file_prompt = """
+You are a developer AI assistant who has knowledge in all programming languages. Extract build information from dependency files.
+project_type: {project_type}
+project_dependency_object_content: {dependency_object_content}
+project_files: {project_files_list}
+
+LANGUAGE-SPECIFIC EXTRACTION RULES:
+
+JAVA (pom.xml/build.gradle):
+- Extract artifactId and version from pom.xml: artifactId-version.jar
+- For Gradle: extract archiveBaseName and version from build.gradle
+
+GO (go.mod):
+- Extract module name: "module github.com/user/myapp" → binary: "myapp"
+- Main file typically in cmd/ or root directory
+
+NODE.JS (package.json):
+- Extract "name" field for app name
+- Extract "main" field for entry point (default: index.js)
+- Extract "scripts.start" for run command
+
+PYTHON (requirements.txt/setup.py):
+- App name from setup.py name field or directory name
+- Entry point typically app.py, main.py, or from setup.py
+
+RUST (Cargo.toml):
+- Extract [package] name for binary name
+- Binary path: target/release/name
+
+Output format (simple key-value pairs):
+base_image: language:latest
+app_name: extracted-app-name
+binary_name: extracted-binary-name
+entry_point: extracted-entry-point
+expose_port: EXPOSE 8080
+build_artifact: path/to/artifact
+"""
+```
+
+### 3. Dockerfile Fix Prompt
+
+**Назначение:** Исправление ошибок сборки Docker образа.
+
+**Когда используется:** Когда docker build завершается с ошибкой.
+
+**Ключевые особенности:**
+- Автоматическое исправление несовпадений package manager
+- Исправление путей к артефактам
+- Извлечение правильных имен файлов из конфигурационных файлов
+
+**Код промта:**
+
+```python
+fix_dockerfile_build_issue_prompt = """
+You are an expert in fixing issues in Dockerfile that raise during docker build. I am getting the following error {docker_build_error} when building docker image with the following Dockerfile content
+{dockerfile_content}
+
+CRITICAL RULES:
+1. Return ONLY valid Dockerfile instructions
+2. Do NOT include any markdown formatting (```, ```dockerfile)
+3. Do NOT include any explanatory text or comments about the fix
+4. Do NOT include >>> or any other formatting artifacts
+5. Do NOT include quotes around the entire response
+6. Start directly with FROM instruction
+7. Each line must be a valid Dockerfile instruction
+
+COMMON FIXES FOR PACKAGE MANAGER ERRORS:
+- If error contains "apt-get" and base image is Alpine: Replace with "apk update && apk add"
+- If error contains "yum" and base image is Debian/Ubuntu: Replace with "apt-get update && apt-get install -y"
+- If error contains "apk" and base image is not Alpine: Replace with appropriate package manager
+- For Java projects: Ensure Maven is installed with correct package manager for the base image
+
+PACKAGE MANAGER BY BASE IMAGE:
+- openjdk:*-slim, debian, ubuntu → apt-get update && apt-get install -y
+- openjdk:*-alpine, alpine → apk update && apk add
+- amazonlinux, centos, rhel → yum update -y && yum install -y
+
+LANGUAGE-SPECIFIC ARTIFACT FIXES:
+- JAVA: If JAR not found, extract from pom.xml/build.gradle:
+  * Maven: artifactId-version.jar (e.g., sample-0.0.1-SNAPSHOT.jar)
+  * Gradle: Extract from build.gradle archiveBaseName and version
+- GO: If binary not found, use module name from go.mod:
+  * Extract module name: "module github.com/user/myapp" → binary: myapp
+  * Use: RUN go build -o /app/myapp ./cmd/main.go
+- NODE.JS: Extract app name from package.json:
+  * Use "name" field from package.json for app identification
+  * Entry point from "main" or "scripts.start"
+- PYTHON: Extract app name from setup.py or pyproject.toml if exists:
+  * Use requirements.txt for dependencies
+  * Entry point typically app.py or main.py
+- RUST: Extract from Cargo.toml:
+  * Use [package] name field for binary name
+  * Binary location: target/release/binary-name
+
+Fix the error and return only the corrected Dockerfile content.
+"""
+```
+
+### 4. ECS Supervisor Prompt (Классификация)
+
+**Назначение:** Определение типа ECS deployment: Fargate или EC2 Auto-scaling.
+
+**Когда используется:** Первый шаг при генерации ECS Terraform кода для выбора правильного паттерна.
+
+**Расположение:** `deployment/deploy-devops-ai-assistant/generators/terraform/generate_ecs_terraform_code.py`
+
+**Код промта:**
+
+```python
+supervisor_template = '''
+You are an AWS ECS expert. Classify the input requirement and output the setup pattern (either "fargate" or "ec2-autoscaling") without any additional text or explanations.
+Input: {input}
+Output:
+'''
+```
+
+### 5. ECS Fargate Terraform Generation Prompt
+
+**Назначение:** Генерация полной Terraform конфигурации для ECS Fargate.
+
+**Когда используется:** Когда пользователь хочет развернуть контейнеры в ECS Fargate.
+
+**Ключевые ресурсы:**
+- VPC с public подсетями и Internet Gateway
+- ECS Cluster
+- Task Definition с извлеченными значениями контейнера
+- ECS Service с network configuration
+- Security Groups для ECS tasks
+- IAM roles для task execution
+- CloudWatch Logs Group
+- (опционально) Application Load Balancer
+
+**Код промта:**
+
+```python
+ecs_cluster_fargate_template = '''
+You are a Terraform expert who generates AWS ECS Fargate configuration for multiple environments.
+Initial requirement: {initial_requirement}
+
+Please provide the following details:
+1. Name of the ECS cluster.
+2. VPC ID to associate the ECS cluster with.
+3. Number of Fargate tasks required.
+4. CPU and memory resources for each task (e.g., 512 vCPU, 1024 MiB memory).
+5. Any specific tags to be applied to the cluster (format: key=value, multiple tags separated by commas).
+6. Additional networking requirements, if any (e.g., subnets, security groups).
+'''
+
+terraform_generation_fargate_template = '''
+Based on all the details provided:
+ECS cluster details: {ecs_cluster_details}
+Task Definition HCL: {task_definition_json}
+
+Generate reusable Terraform configurations for ECS Fargate with essential resources.
+
+MANDATORY RESOURCES (required for working ECS Fargate):
+- VPC with public subnets and internet gateway
+- ECS Cluster
+- Task Definition with extracted container values
+- ECS Service with network configuration
+- Security Groups for ECS tasks
+- IAM roles for task execution
+- CloudWatch Logs Group
+
+OPTIONAL RESOURCES (create only if user specifically requests load balancing):
+- Application Load Balancer and Target Group (only if user mentions ALB/load balancer)
+- ALB Security Groups (only if ALB is created)
+- Load balancer configuration in ECS Service (only if ALB is created)
+
+Requirements:
+1. Do not use any hardcoded resource IDs in the code.
+2. Include required data sources like aws_availability_zones and aws_caller_identity.
+3. Always generate end-to-end code using Terraform.
+4. Use the provided HCL container_definitions directly in aws_ecs_task_definition resource.
+5. Avoid cyclic dependencies in the code.
+6. Include all necessary networking components such as custom VPC, subnets, IGW, and security groups.
+7. Ensure to create IAM roles required for the ECS tasks and task execution, including policies for necessary permissions.
+8. If no load balancer is mentioned, create ECS Service without load_balancer configuration.
+9. DO NOT use deprecated template provider or template_file data source
+10. Use templatefile() function or locals for user data instead of template_file
+11. Only use aws provider - no template, null, or other deprecated providers
+12. CRITICAL: DO NOT use variables - embed all values directly in resources
+13. CRITICAL: DO NOT prompt for user input - generate complete standalone Terraform code
+14. CRITICAL: Use extracted container values directly in container_definitions, not as variables
+15. CRITICAL: In aws_ecs_task_definition resource, use: container_definitions = jsonencode([...])
+16. CRITICAL: DO NOT use: container_definitions = var.container_definitions
+'''
+```
+
+### 6. ECS Task Definition Generation Prompt
+
+**Назначение:** Создание Task Definition в HCL формате на основе Dockerfile.
+
+**Когда используется:** Для определения контейнеров, которые будут запущены в ECS.
+
+**Ключевые особенности:**
+- Извлечение имени образа из Dockerfile
+- Извлечение портов из EXPOSE
+- Извлечение переменных окружения из ENV
+- НЕ использует hardcoded значения
+
+**Код промта:**
+
+```python
+task_definition_template = '''
+Generate a task definition in HCL format based on the Dockerfile content provided.
+Dockerfile content: {dockerfile_content}
+
+IMPORTANT: Extract the following information from the Dockerfile:
+- Base image from FROM instruction (use this as the container image)
+- Exposed ports from EXPOSE instruction (use for containerPort)
+- Working directory from WORKDIR instruction
+- Environment variables from ENV instructions
+- Resource requirements based on application type
+
+DO NOT use hardcoded values like "my-app:latest", "nginx", or port 8080.
+Use the actual information from the Dockerfile provided.
+
+If no EXPOSE instruction is found, analyze the Dockerfile to determine the likely port.
+If no specific image tag is mentioned, use the base image with ":latest" tag.
+
+EXAMPLES of extraction (use actual values from YOUR Dockerfile):
+- If YOUR Dockerfile has FROM node:16 → use image = "node:16"
+- If YOUR Dockerfile has EXPOSE 3000 → use containerPort = 3000
+- If YOUR Dockerfile builds a web-app → use name = "web-app"
+
+Output format (replace placeholders with actual Dockerfile values):
+
+container_definitions = jsonencode([
+  {{
+    name      = "[extract-actual-app-name]"
+    image     = "[extract-actual-image-name:tag]"
+    cpu       = appropriate-cpu-value
+    memory    = appropriate-memory-value
+    essential = true
+    portMappings = [
+      {{
+        containerPort = [extract-actual-port-number]
+        hostPort      = [extract-actual-port-number]
+        protocol      = "tcp"
+      }}
+    ]
+    environment = [
+      # Add any ENV variables from Dockerfile
+    ]
+    logConfiguration = {{
+      logDriver = "awslogs"
+      options = {{
+        "awslogs-group"         = "/ecs/[extract-actual-app-name]"
+        "awslogs-region"        = "us-east-1"
+        "awslogs-stream-prefix" = "ecs"
+      }}
+    }}
+  }}
+])
+'''
+```
+
+---
+
