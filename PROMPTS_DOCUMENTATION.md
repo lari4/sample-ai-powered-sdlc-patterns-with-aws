@@ -1043,3 +1043,288 @@ Do not include any additional text or explanations outside the code block.
 
 ---
 
+## Performance Testing Prompts
+
+Эти промты используются для автоматизации performance testing через генерацию JMeter тестов.
+
+**Расположение:** `testing/test-api-performance-testing-mcp/performance-testing-mcp-server/`
+
+### 1. Architecture Analysis Prompt
+
+**Назначение:** Анализ архитектурной документации для извлечения информации о компонентах системы, API endpoints и workflows.
+
+**Когда используется:** На первом этапе performance testing для понимания системы.
+
+**Расположение:** `architecture_analyzer.py`
+
+**Код промта:**
+
+```python
+system_prompt = """You are an expert system architect and performance testing specialist.
+Analyze the provided architecture documents and extract information for performance testing.
+
+Focus on extracting:
+1. System Components: All services, databases, APIs, and external systems
+   - For each component, identify: name, type, purpose, dependencies
+
+2. API Endpoints: All REST/GraphQL/RPC endpoints
+   - For each endpoint: path, HTTP method, description, request/response format
+
+3. Data Flows: How data moves between components
+   - Input sources → Processing steps → Output destinations
+
+4. User/Business Workflows: Complete end-to-end workflows
+   - Step-by-step sequences that users perform
+   - Which APIs are called in each step
+
+5. Non-Functional Requirements (NFRs):
+   - Expected response times
+   - Maximum concurrent users
+   - Throughput requirements
+   - Any SLAs or performance targets
+
+IMPORTANT: Handle nested JSON structures carefully. If you see nested objects or arrays,
+extract the actual values, not JSON strings or escaped characters.
+
+Return a JSON object with this structure:
+{
+  "components": [...],
+  "endpoints": [...],
+  "workflows": [...],
+  "nfrs": {...}
+}
+"""
+```
+
+### 2. Scenario Generation Prompt
+
+**Назначение:** Генерация сценариев performance тестирования на основе архитектурного анализа.
+
+**Когда используется:** После архитектурного анализа для создания test scenarios.
+
+**Расположение:** `scenario_generator.py`
+
+**Ключевые особенности:**
+- Извлечение значений из NFRs (max_concurrent_users, max_test_duration, max_loops_per_user)
+- Генерация load, stress и endurance сценариев
+- Конвертация временных строк в числовые значения
+
+**Код промта:**
+
+```python
+system_prompt = """You are an expert performance testing engineer specializing in JMeter and load testing.
+Generate comprehensive performance test scenarios based on the provided workflow APIs and NFRs.
+
+CRITICAL: Extract test configuration values from the NFRs object:
+- Use "max_concurrent_users" for number of concurrent users
+- Use "max_test_duration" for test duration (convert time strings to numeric seconds)
+- Use "max_loops_per_user" for loop configuration
+
+IMPORTANT: Convert time durations properly:
+- "5 minutes" → 300 seconds
+- "1 hour" → 3600 seconds
+- "30 seconds" → 30 seconds
+
+Generate three types of scenarios:
+1. Load Testing: Normal expected load
+2. Stress Testing: Beyond normal capacity
+3. Endurance Testing: Sustained load over time
+
+For each scenario, provide:
+- Scenario name and description
+- API sequence (which APIs to call in order)
+- Number of concurrent users (from NFRs)
+- Test duration in seconds (from NFRs)
+- Ramp-up time
+- Loop count (from NFRs)
+- Think time between requests
+
+Return JSON format:
+{
+  "scenarios": [
+    {
+      "name": "...",
+      "description": "...",
+      "type": "load|stress|endurance",
+      "api_sequence": [...],
+      "concurrent_users": <number>,
+      "duration_seconds": <number>,
+      "ramp_up_seconds": <number>,
+      "loops_per_user": <number>,
+      "think_time_ms": <number>
+    }
+  ]
+}
+"""
+```
+
+### 3. Test Results Analysis Prompt
+
+**Назначение:** Анализ результатов performance тестов с оценками и рекомендациями.
+
+**Когда используется:** После выполнения тестов для интерпретации результатов.
+
+**Расположение:** `test_executor.py`
+
+**Ключевые секции анализа:**
+- Executive Summary
+- Performance Grade (A-F)
+- Key Findings
+- Recommendations
+- Risk Assessment
+- Bottleneck Analysis
+- Scalability Assessment
+
+**Код промта:**
+
+```python
+system_prompt = """You are an expert performance testing analyst with deep knowledge of JMeter, load testing, and system performance optimization.
+
+Analyze the provided test results and provide comprehensive insights.
+
+Your analysis should include:
+
+1. Executive Summary: High-level overview of performance
+2. Performance Grade: Assign a grade (A-F) based on:
+   - Response times vs targets
+   - Error rates
+   - Throughput
+   - Resource utilization
+3. Key Findings: Top 3-5 most important observations
+4. Recommendations: Specific actions to improve performance
+5. Risk Assessment: Identify performance risks
+6. Bottleneck Analysis: Identify system bottlenecks
+7. Scalability Assessment: Can the system scale?
+
+Return JSON format:
+{
+  "executive_summary": "...",
+  "performance_grade": "A|B|C|D|F",
+  "key_findings": [...],
+  "recommendations": [...],
+  "risk_assessment": "...",
+  "bottleneck_analysis": [...],
+  "scalability_assessment": "..."
+}
+"""
+```
+
+---
+
+## API Documentation and Other Prompts
+
+Эти промты используются в различных вспомогательных инструментах.
+
+### 1. Solution Architecture Prompt
+
+**Назначение:** Предоставление рекомендаций по архитектуре на основе AWS Well-Architected Framework.
+
+**Когда используется:** При консультациях по архитектуре решений.
+
+**Расположение:** `design-and-architecture/design-solutionarchitecture-mcp/mcp-server/sa_tools_module.py`
+
+**Модель:** Claude 3.7 Sonnet, max tokens: 4096
+
+**Примечание:** Промт генерируется динамически через `call_claude_sonnet(prompt)` функцию.
+
+### 2. OpenAPI Documentation Generation
+
+**Назначение:** Генерация OpenAPI 3.1 спецификаций для API.
+
+**Когда используется:** При документировании API endpoints.
+
+**Расположение:** `design-and-architecture/design-openapidocumentation-mcp/mcp-server/src/tools/OpenAPIGeneratorTool.ts`
+
+**Input Schema включает:**
+- API title, version, description
+- Server configurations
+- Paths and operations
+- Components and schemas
+- Domain analysis context
+- Authentication scheme (none, apiKey, bearer, oauth2, basic)
+- API style (REST, GraphQL, RPC)
+
+### 3. Incident Management AI Analyzer
+
+**Назначение:** Анализ инцидентов для root cause analysis, severity classification и рекомендаций по устранению.
+
+**Когда используется:** При автоматической обработке инцидентов из Slack/PagerDuty.
+
+**Расположение:** `operation-and-maintenance/maintain-incidementmanagement-slack-pagerduty/mcp/incident_management/core/ai_analyzer.py`
+
+**Функции:**
+- Root cause analysis
+- Severity classification
+- Remediation suggestions
+- Similar incident finding
+- Risk level assessment
+- Resolution time estimation
+
+**Модель:** AWS Bedrock (Claude Haiku model)
+
+### 4. Amazon Q Business Integration
+
+**Назначение:** Интеграция с Amazon Q Business для извлечения информации из knowledge base и генерации контента.
+
+**Когда используется:** Для работы с корпоративными знаниями в Confluence и других источниках.
+
+**Расположение:** `requirement-and-planning/amazon-q-business-requirements-analysis-mcp/mcp_server/amazon_q_jsonrpc_server.py`
+
+**Режимы работы:**
+- RETRIEVAL_MODE: Получение информации из knowledge base
+- CREATOR_MODE: Генерация нового контента
+
+**Аутентификация:** Cognito → IDC → STS credential exchange
+
+### 5. UI/UX Generation Service
+
+**Назначение:** Генерация UI/UX дизайна и спецификаций компонентов.
+
+**Когда используется:** При проектировании пользовательских интерфейсов.
+
+**Расположение:** `design-and-architecture/design-ui-ux-generator-figma/backend/bedrock_service.py`
+
+**Ключевые особенности:**
+- UI/UX design generation
+- Component specification generation
+- Design description generation
+- Rate limiting (10 requests per minute)
+- Circuit breaker pattern для надежности
+
+### 6. Knowledge Base Chat Service
+
+**Назначение:** Чат с базой знаний проекта для ответов на вопросы.
+
+**Когда используется:** Для поиска информации в документации проекта.
+
+**Расположение:** `all-phases/sdlc-knowledge-management/terraform/modules/lambda/chat-handler/src/bedrock-service.ts`
+
+**Ключевые особенности:**
+- RetrieveAndGenerate API без управления сессиями
+- Query complexity classification
+- Оптимальный выбор модели по сложности запроса
+- Отслеживание использования токенов и расчет стоимости
+
+---
+
+## Резюме всех промтов
+
+### Статистика
+
+**Общее количество категорий промтов:** 6 основных групп
+
+1. **SDLC Phase-Based Prompts:** 7 промтов (Requirements, Design, Development, Testing, Deployment, Maintenance + Base)
+2. **Dynamic Tool Integration Prompts:** 6 промтов (Intelligent System, Epic Extraction, Domain Analysis, OpenAPI, Architecture Diagram, Cost Estimation)
+3. **DevOps AI Assistant Prompts:** 11 промтов (Docker generation, fixing, info extraction; ECS/EKS Terraform; Buildspec)
+4. **Performance Testing Prompts:** 3 промта (Architecture Analysis, Scenario Generation, Results Analysis)
+5. **API Documentation and Other Prompts:** 6 различных сервисов
+
+**Используемые AI модели:**
+- Claude 3 Sonnet (primary - большинство операций)
+- Claude 3.7 Sonnet (Solution Architecture)
+- Claude 3 Haiku (быстрые операции, Incident Management)
+- Claude 3 Opus (premium операции)
+- Amazon Titan (fallback)
+
+**Точки интеграции с AWS Bedrock:** 15+ файлов используют AWS Bedrock для вызова Claude моделей
+
